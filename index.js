@@ -150,22 +150,25 @@ app.delete("/api/assignments/:id", async (req, res) => {
  
 });
 
+
+
 // Endpoint to update an assignment by ID
+// 
+
 // app.put('/api/assignments/:id', async (req, res) => {
 //   const { id } = req.params;
-//   const { title, description, marks, thumbnail, difficulty, dueDate, currentUserEmail } = req.body;
+//   const { title, description, marks, difficulty, dueDate } = req.body;
 
-//   // Validate the ObjectId
-//   if (!isValidObjectId(id)) {
-//     return res.status(400).json({ message: "Invalid assignment ID" });
-//   }
-
-//   // Check if current user email is provided
-//   if (!currentUserEmail) {
-//     return res.status(400).json({ message: "Current user email is required." });
+//   // Extract user email from JWT token
+//   const token = req.headers['authorization']?.split(' ')[1];
+//   if (!token) {
+//     return res.status(401).json({ message: "Authorization required" });
 //   }
 
 //   try {
+//     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+//     const currentUserEmail = decoded.email;
+
 //     // Find the assignment by ID
 //     const assignment = await assignmentsCollection.findOne({ _id: new ObjectId(id) });
 
@@ -173,92 +176,47 @@ app.delete("/api/assignments/:id", async (req, res) => {
 //       return res.status(404).json({ message: "Assignment not found" });
 //     }
 
-//     // Check if the current user is the creator
-//     if (assignment.creatorEmail !== currentUserEmail) {
-//       return res.status(403).json({ message: "You are not authorized to update this assignment." });
-//     }
-
-//     // Build the updated fields
-//     const updatedFields = {};
-//     if (title) updatedFields.title = title;
-//     if (description) updatedFields.description = description;
-//     if (marks) updatedFields.marks = marks;
-//     if (thumbnail) updatedFields.thumbnail = thumbnail;
-//     if (difficulty) updatedFields.difficulty = difficulty;
-//     if (dueDate) updatedFields.dueDate = new Date(dueDate);
-
-//     // Perform the update
+//     // Proceed with update logic
+//     const updatedFields = { title, description, marks, difficulty, dueDate };
 //     const result = await assignmentsCollection.updateOne(
 //       { _id: new ObjectId(id) },
 //       { $set: updatedFields }
 //     );
 
-//     if (result.matchedCount === 0) {
-//       return res.status(404).json({ message: "Assignment not found for update." });
-//     }
-
-//     res.status(200).json({
-//       message: "Assignment updated successfully",
-//       updatedAssignment: { ...assignment, ...updatedFields },
-//     });
+//     res.status(200).json({ message: "Assignment updated successfully" });
 //   } catch (error) {
 //     console.error("Error updating assignment:", error);
 //     res.status(500).json({ message: "Internal server error" });
 //   }
 // });
-
-// Endpoint to update an assignment by ID
 app.put('/api/assignments/:id', async (req, res) => {
   const { id } = req.params;
-  const { title, description, marks, thumbnail, difficulty, dueDate } = req.body;
-  const { currentUserEmail } = req.query;  // Assuming the current user's email is sent as a query param
-
-  // Validate the ObjectId
-  if (!isValidObjectId(id)) {
-    return res.status(400).json({ message: "Invalid assignment ID" });
-  }
-
-  // Check if current user email is provided
-  if (!currentUserEmail) {
-    return res.status(400).json({ message: "Current user email is required." });
-  }
+  const updatedAssignment = req.body;
 
   try {
-    // Find the assignment by ID
-    const assignment = await assignmentsCollection.findOne({ _id: new ObjectId(id) });
+    // Remove _id from the update data as it cannot be modified
+    const { _id, ...updateData } = updatedAssignment;
 
-    if (!assignment) {
-      return res.status(404).json({ message: "Assignment not found" });
-    }
-
-    // Build the updated fields
-    const updatedFields = {};
-    if (title) updatedFields.title = title;
-    if (description) updatedFields.description = description;
-    if (marks) updatedFields.marks = marks;
-    if (thumbnail) updatedFields.thumbnail = thumbnail;
-    if (difficulty) updatedFields.difficulty = difficulty;
-    if (dueDate) updatedFields.dueDate = new Date(dueDate);
-
-    // Perform the update
+    console.log('Updating Assignment:', updateData);
+    
+    // MongoDB updateOne method
     const result = await assignmentsCollection.updateOne(
       { _id: new ObjectId(id) },
-      { $set: updatedFields }
+      { $set: updateData }
     );
 
     if (result.matchedCount === 0) {
-      return res.status(404).json({ message: "Assignment not found for update." });
+      return res.status(404).json({ message: "Assignment not found" });
     }
 
-    res.status(200).json({
-      message: "Assignment updated successfully",
-      updatedAssignment: { ...assignment, ...updatedFields },
-    });
+    res.status(200).json({ message: "Assignment updated successfully" });
   } catch (error) {
     console.error("Error updating assignment:", error);
-    res.status(500).json({ message: "Internal server error" });
+    res.status(500).json({ message: "Error updating assignment" });
   }
 });
+
+
 
 
 
