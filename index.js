@@ -20,22 +20,28 @@ const client = new MongoClient(uri, {
 });
 
 let assignmentsCollection;
+let submissionsCollection;
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 
-// Connect to MongoDB database
+
+
 async function connectToDatabase() {
   try {
     await client.connect();
     const database = client.db('GroupStudy');
     assignmentsCollection = database.collection('assignments');
+    submissionsCollection = database.collection('submissions'); // Initialize submissionsCollection
     console.log("Connected to MongoDB");
   } catch (error) {
     console.error("Error connecting to MongoDB:", error);
   }
 }
+
+
+
 
 connectToDatabase();
 
@@ -79,13 +85,27 @@ app.post('/api/assignments', async (req, res) => {
 // Endpoint to get all assignments
 app.get('/api/assignments', async (req, res) => {
   try {
-    const assignments = await assignmentsCollection.find().toArray();
+    const { difficulty, search } = req.query; // Query parameters for filtering and search
+    const filter = {};
+
+    // Add difficulty filter if provided
+    if (difficulty) {
+      filter.difficulty = difficulty.toLowerCase();
+    }
+
+    // Add search filter if provided
+    if (search) {
+      filter.title = { $regex: search, $options: 'i' }; // Case-insensitive search
+    }
+
+    const assignments = await assignmentsCollection.find(filter).toArray();
     res.json(assignments);
   } catch (error) {
     console.error('Error fetching assignments:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });
+
 
 // Endpoint to get a specific assignment by ID
 app.get('/api/assignments/:id', async (req, res) => {
@@ -109,11 +129,12 @@ app.get('/api/assignments/:id', async (req, res) => {
   }
 });
 
+
+
 app.delete("/api/assignments/:id", async (req, res) => {
   const { id } = req.params;
-  const { currentUserEmail } = req.query; 
+  const currentUserEmail = req.headers['authorization']?.split(' ')[1]; // Read email from the Authorization header
 
-  // Validate the ObjectId
   if (!isValidObjectId(id)) {
     return res.status(400).json({ message: "Invalid assignment ID" });
   }
@@ -147,8 +168,53 @@ app.delete("/api/assignments/:id", async (req, res) => {
     console.error("Error deleting assignment:", error);
     res.status(500).json({ message: "Internal server error" });
   }
- 
 });
+
+
+// app.delete("/api/assignments/:id", async (req, res) => {
+//   const { id } = req.params;
+//   const { currentUserEmail } = req.query; 
+
+//   // Validate the ObjectId
+//   if (!isValidObjectId(id)) {
+//     return res.status(400).json({ message: "Invalid assignment ID" });
+//   }
+
+//   if (!currentUserEmail) {
+//     return res.status(400).json({ message: "Current user email is required." });
+//   }
+
+//   try {
+//     // Find the assignment
+//     const assignment = await assignmentsCollection.findOne({ _id: new ObjectId(id) });
+
+//     if (!assignment) {
+//       return res.status(404).json({ message: "Assignment not found" });
+//     }
+
+//     // Check if the current user is the creator
+//     if (assignment.creatorEmail !== currentUserEmail) {
+//       return res.status(403).json({ message: "You are not authorized to delete this assignment." });
+//     }
+
+//     // Delete the assignment
+//     const result = await assignmentsCollection.deleteOne({ _id: new ObjectId(id) });
+
+//     if (result.deletedCount === 0) {
+//       return res.status(404).json({ message: "Failed to delete the assignment." });
+//     }
+
+//     res.status(200).json({ message: "Assignment deleted successfully" });
+//   } catch (error) {
+//     console.error("Error deleting assignment:", error);
+//     res.status(500).json({ message: "Internal server error" });
+//   }
+ 
+// });
+
+
+
+
 
 
 
@@ -216,6 +282,108 @@ app.put('/api/assignments/:id', async (req, res) => {
   }
 });
 
+/////////////////////////
+// Endpoint to submit an assignment
+// app.post('/api/assignments/submit/:id', async (req, res) => {
+//   const { id } = req.params; // Retrieve assignment ID
+//   const { googleDocLink, note, userEmail } = req.body; // Extract submission details
+
+//   // Validate inputs
+//   if (!googleDocLink || !note || !userEmail) {
+//     return res.status(400).json({ message: 'All fields are required.' });
+//   }
+
+//   if (!isValidObjectId(id)) {
+//     return res.status(400).json({ message: 'Invalid assignment ID.' });
+//   }
+
+//   try {
+//     // Check if the assignment exists
+//     const assignment = await assignmentsCollection.findOne({ _id: new ObjectId(id) });
+//     if (!assignment) {
+//       return res.status(404).json({ message: 'Assignment not found.' });
+//     }
+
+//     // Prepare submission object
+//     const submission = {
+//       assignmentId: id,
+//       googleDocLink,
+//       note,
+//       status: 'pending', // Default status
+//       userEmail, // Submitted user's email
+//       createdAt: new Date(),
+//     };
+
+//     // Insert submission into submissionsCollection
+//     const result = await submissionsCollection.insertOne(submission);
+
+//     res.status(201).json({
+//       message: 'Assignment submitted successfully.',
+//       submissionId: result.insertedId,
+//     });
+//   } catch (error) {
+//     console.error('Error submitting assignment:', error);
+//     res.status(500).json({ message: 'Internal server error.' });
+//   }
+// });
+
+
+app.post('/api/assignments/submit/:id', async (req, res) => {
+  const { id } = req.params;
+  const { googleDocLink, note, status, userEmail } = req.body;
+
+  // Validate required fields
+  if (!googleDocLink || !note || !status || !userEmail) {
+    return res.status(400).json({ message: 'All fields are required.' });
+  }
+
+  try {
+    const submission = {
+      assignmentId: id,
+      googleDocLink,
+      note,
+      status, // Ensure "pending" is saved
+      userEmail,
+      createdAt: new Date(),
+    };
+
+    // Insert into submissions collection
+    const result = await submissionsCollection.insertOne(submission);
+    res.status(201).json({
+      message: 'Submission successful!',
+      submissionId: result.insertedId,
+    });
+  } catch (error) {
+    console.error('Error submitting assignment:', error);
+    res.status(500).json({ message: 'Internal server error.' });
+  }
+});
+
+
+
+
+
+
+
+
+/////////////////////
+app.get('/api/assignments/pending', async (req, res) => {
+  const { email } = req.query;
+
+  if (!email) {
+    return res.status(400).json({ message: "Email query parameter is required" });
+  }
+
+  try {
+    const assignments = await assignmentsCollection
+      .find({ examinee: email, status: 'pending' }) // Adjust the filter as per your schema
+      .toArray();
+    res.json(assignments);
+  } catch (error) {
+    console.error('Error fetching pending assignments:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
 
 
 
