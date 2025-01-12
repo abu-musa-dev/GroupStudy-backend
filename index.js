@@ -194,12 +194,20 @@ app.post('/api/assignments/submit/:id', async (req, res) => {
   }
 
   try {
+    // Fetch the assignment title from the assignments collection using the assignmentId
+    const assignment = await assignmentsCollection.findOne({ _id: new ObjectId(id) });
+
+    if (!assignment) {
+      return res.status(404).json({ message: 'Assignment not found.' });
+    }
+
     const submission = {
       assignmentId: id,
       googleDocLink,
       note,
       status: 'pending',  // Set status as 'pending' when a submission is made
       userEmail,
+      assignmentTitle: assignment.title, // Add assignment title to submission
       createdAt: new Date(),
     };
 
@@ -213,6 +221,7 @@ app.post('/api/assignments/submit/:id', async (req, res) => {
     res.status(500).json({ message: 'Internal server error.' });
   }
 });
+
 
 // Endpoint to get all submissions
 app.get('/api/submissions', async (req, res) => {
