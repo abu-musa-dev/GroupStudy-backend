@@ -24,7 +24,7 @@ let submissionsCollection;
 // Middleware
 app.use(cors());
 app.use(express.json());
-
+////////////
 // Connect to MongoDB
 async function connectToDatabase() {
   try {
