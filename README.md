@@ -19,9 +19,4 @@ This repository contains the backend API for the Online Group Study web applicat
 - **CORS**: Middleware for enabling cross-origin requests.
 - **Firebase Authentication**: For secure user authentication using Google and GitHub.
 
-## Setup Instructions:
 
-### 1. Clone the repository:
-```bash
-git clone https://github.com/yourusername/backend-repo.git
-cd backend-repo
