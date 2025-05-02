@@ -2,8 +2,7 @@
 
 This repository hosts the backend API for the **Online Group Study Web Application**, designed to support seamless user authentication, assignment management, and grading functionality. Built using **Node.js**, **Express.js**, **MongoDB**, and **Firebase Authentication**, this API provides robust, secure, and scalable endpoints for managing user accounts, assignments, and evaluations.
 
-### **Live Site (Frontend)**
-[View the Live Site](https://groupstudy-web.netlify.app/)
+### **Live Site (Frontend)**[View the Live Site](https://groupstudy-web.netlify.app/)
 
 ## 🚀 **Key Features**
 - **JWT Authentication**: Implemented secure authentication via **email/password** or **social logins** (Google/GitHub) using **JWT tokens**.
