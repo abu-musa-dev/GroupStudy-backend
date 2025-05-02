@@ -3,9 +3,12 @@ require('dotenv').config();
 const express = require('express');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 const port = 5000;
+app.use(cors());
+app.use(express.json());
 
 // MongoDB URI
 const uri = `mongodb+srv://${process.env.MONGODB_Email}:${process.env.MONGODB_Password}@groupstudycluster.licae.mongodb.net/?retryWrites=true&w=majority&appName=GroupStudyCluster`;
@@ -21,301 +24,197 @@ const client = new MongoClient(uri, {
 let assignmentsCollection;
 let submissionsCollection;
 
-// Middleware
-app.use(cors());
-app.use(express.json());
-
 // Connect to MongoDB
 async function connectToDatabase() {
   try {
     await client.connect();
     const database = client.db('GroupStudy');
     assignmentsCollection = database.collection('assignments');
-    submissionsCollection = database.collection('submissions'); // Initialize submissionsCollection
+    submissionsCollection = database.collection('submissions');
     console.log("Connected to MongoDB");
   } catch (error) {
     console.error("Error connecting to MongoDB:", error);
   }
 }
-
 connectToDatabase();
 
-// Utility function to check if ObjectId is valid
-const isValidObjectId = (id) => /^[a-fA-F0-9]{24}$/.test(id);
+// JWT Middleware
+const verifyJWT = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ message: 'No token provided' });
 
-// Endpoint to create an assignment
-app.post('/api/assignments', async (req, res) => {
+  const token = authHeader.split(' ')[1];
+  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+    if (err) return res.status(403).json({ message: 'Invalid token' });
+    req.user = decoded;
+    next();
+  });
+};
+
+// Generate JWT Token
+app.post('/jwt', (req, res) => {
+  const user = req.body;
+  if (!user?.email) return res.status(400).json({ message: "Email is required" });
+
+  const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: '1h' });
+  res.send({ token });
+});
+
+// Create an assignment (Protected)
+app.post('/assignments', verifyJWT, async (req, res) => {
   try {
     const { title, description, marks, thumbnail, difficulty, dueDate, creatorEmail } = req.body;
-
-    // Validate required fields
     if (!title || !description || !marks || !thumbnail || !difficulty || !dueDate || !creatorEmail) {
-      return res.status(400).json({ message: 'All fields are required.' });
+      return res.json({ message: 'All fields are required.' });
     }
 
     const newAssignment = {
-      title,
-      description,
-      marks,
-      thumbnail,
-      difficulty,
-      dueDate: new Date(dueDate),
-      creatorEmail,
-      createdAt: new Date(),
-      status: 'pending', // Default status for new assignments
+      title, description, marks, thumbnail,
+      difficulty, dueDate: new Date(dueDate),
+      creatorEmail, createdAt: new Date(), status: 'pending',
     };
 
     const result = await assignmentsCollection.insertOne(newAssignment);
-    const insertedAssignment = { ...newAssignment, _id: result.insertedId };
-
-    res.status(201).json({
-      message: 'Assignment created successfully',
-      assignment: insertedAssignment,
-    });
+    res.json({ message: 'Assignment created', assignment: { ...newAssignment, _id: result.insertedId } });
   } catch (error) {
-    console.error('Error creating assignment:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.json({ message: 'Error creating assignment' });
   }
 });
 
-// Endpoint to get all assignments
-app.get('/api/assignments', async (req, res) => {
+// Get all assignments
+app.get('/assignments', async (req, res) => {
   try {
     const { difficulty, search } = req.query;
     const filter = {};
-
-    if (difficulty) {
-      filter.difficulty = difficulty.toLowerCase();
-    }
-
-    if (search) {
-      filter.title = { $regex: search, $options: 'i' };
-    }
+    if (difficulty) filter.difficulty = difficulty.toLowerCase();
+    if (search) filter.title = { $regex: search, $options: 'i' };
 
     const assignments = await assignmentsCollection.find(filter).toArray();
     res.json(assignments);
-  } catch (error) {
-    console.error('Error fetching assignments:', error);
-    res.status(500).json({ message: 'Internal server error' });
+  } catch {
+    res.json({ message: 'Error fetching assignments' });
   }
 });
 
-// Endpoint to get a specific assignment by ID
-app.get('/api/assignments/:id', async (req, res) => {
-  const { id } = req.params;
-
-  if (!isValidObjectId(id)) {
-    return res.status(400).json({ message: 'Invalid assignment ID' });
-  }
-
+// Get assignment by ID
+app.get('/assignments/:id', async (req, res) => {
   try {
+    const assignment = await assignmentsCollection.findOne({ _id: new ObjectId(req.params.id) });
+    if (!assignment) return res.json({ message: 'Assignment not found' });
+    res.json(assignment);
+  } catch {
+    res.json({ message: 'Error fetching assignment' });
+  }
+});
+
+// Delete assignment (Protected)
+app.delete("/assignments/:id", verifyJWT, async (req, res) => {
+  try {
+    const id = req.params.id;
     const assignment = await assignmentsCollection.findOne({ _id: new ObjectId(id) });
 
-    if (!assignment) {
-      return res.status(404).json({ message: 'Assignment not found' });
+    if (!assignment || assignment.creatorEmail !== req.user.email) {
+      return res.status(403).json({ message: "Unauthorized or not found" });
     }
 
-    res.status(200).json(assignment);
-  } catch (error) {
-    console.error('Error fetching assignment:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    await assignmentsCollection.deleteOne({ _id: new ObjectId(id) });
+    res.json({ message: "Deleted successfully" });
+  } catch {
+    res.json({ message: "Error deleting assignment" });
   }
 });
 
-// Endpoint to delete an assignment
-app.delete("/api/assignments/:id", async (req, res) => {
-  const { id } = req.params;
-  const currentUserEmail = req.headers['authorization']?.split(' ')[1];
-
-  if (!isValidObjectId(id)) {
-    return res.status(400).json({ message: "Invalid assignment ID" });
-  }
-
-  if (!currentUserEmail) {
-    return res.status(400).json({ message: "Current user email is required." });
-  }
-
+// Update assignment (Protected)
+app.put('/assignments/:id', verifyJWT, async (req, res) => {
   try {
-    const assignment = await assignmentsCollection.findOne({ _id: new ObjectId(id) });
+    const { marks, feedback, status, ...rest } = req.body;
+    const updateData = marks && feedback
+      ? { marks, feedback, status: 'completed' }
+      : rest;
 
-    if (!assignment) {
-      return res.status(404).json({ message: "Assignment not found" });
-    }
-
-    if (assignment.creatorEmail !== currentUserEmail) {
-      return res.status(403).json({ message: "You are not authorized to delete this assignment." });
-    }
-
-    const result = await assignmentsCollection.deleteOne({ _id: new ObjectId(id) });
-
-    if (result.deletedCount === 0) {
-      return res.status(404).json({ message: "Failed to delete the assignment." });
-    }
-
-    res.status(200).json({ message: "Assignment deleted successfully" });
-  } catch (error) {
-    console.error("Error deleting assignment:", error);
-    res.status(500).json({ message: "Internal server error" });
-  }
-});
-
-// Endpoint to update an assignment
-app.put('/api/assignments/:id', async (req, res) => {
-  const { id } = req.params;
-  const updatedAssignment = req.body;
-
-  try {
-    const { _id, ...updateData } = updatedAssignment;
-
-    // MongoDB updateOne method
     const result = await assignmentsCollection.updateOne(
-      { _id: new ObjectId(id) },
+      { _id: new ObjectId(req.params.id) },
       { $set: updateData }
     );
 
-    if (result.matchedCount === 0) {
-      return res.status(404).json({ message: "Assignment not found" });
-    }
-
-    res.status(200).json({ message: "Assignment updated successfully" });
-  } catch (error) {
-    console.error("Error updating assignment:", error);
-    res.status(500).json({ message: "Error updating assignment" });
+    if (result.matchedCount === 0) return res.json({ message: "Assignment not found" });
+    res.json({ message: "Assignment updated" });
+  } catch {
+    res.json({ message: "Error updating assignment" });
   }
 });
 
-// Endpoint to submit an assignment
-app.post('/api/assignments/submit/:id', async (req, res) => {
-  const { id } = req.params;
-  const { googleDocLink, note, userEmail } = req.body;
-
-  if (!googleDocLink || !note || !userEmail) {
-    return res.status(400).json({ message: 'All fields are required.' });
-  }
-
+// Submit assignment (Protected)
+app.post('/assignments/submit/:id', verifyJWT, async (req, res) => {
   try {
-    // Fetch the assignment title from the assignments collection using the assignmentId
-    const assignment = await assignmentsCollection.findOne({ _id: new ObjectId(id) });
-
-    if (!assignment) {
-      return res.status(404).json({ message: 'Assignment not found.' });
-    }
+    const { googleDocLink, note, userEmail } = req.body;
+    const assignment = await assignmentsCollection.findOne({ _id: new ObjectId(req.params.id) });
+    if (!assignment) return res.json({ message: 'Assignment not found' });
 
     const submission = {
-      assignmentId: id,
-      googleDocLink,
-      note,
-      status: 'pending',  // Set status as 'pending' when a submission is made
-      userEmail,
-      assignmentTitle: assignment.title, // Add assignment title to submission
+      assignmentId: req.params.id, googleDocLink, note,
+      status: 'pending', userEmail,
+      assignmentTitle: assignment.title,
       createdAt: new Date(),
     };
 
     const result = await submissionsCollection.insertOne(submission);
-    res.status(201).json({
-      message: 'Submission successful!',
-      submissionId: result.insertedId,
-    });
-  } catch (error) {
-    console.error('Error submitting assignment:', error);
-    res.status(500).json({ message: 'Internal server error.' });
+    res.json({ message: 'Submitted', submissionId: result.insertedId });
+  } catch {
+    res.json({ message: 'Error submitting' });
   }
 });
 
-
-// Endpoint to get all submissions
-app.get('/api/submissions', async (req, res) => {
+// Get all submissions (Protected)
+app.get('/submissions',  async (req, res) => {
   try {
     const submissions = await submissionsCollection.find().toArray();
     res.json(submissions);
-  } catch (error) {
-    console.error('Error fetching submissions:', error);
-    res.status(500).json({ message: 'Internal server error' });
+  } catch {
+    res.json({ message: 'Error fetching submissions' });
   }
 });
 
-// Endpoint to get pending assignments based on email
-app.get('/api/assignments/pending', async (req, res) => {
-  const { email } = req.query;
-
-  if (!email) {
-    return res.status(400).json({ message: "Email query parameter is required" });
-  }
-
+// Update submission (Protected)
+app.put('/submissions/:id', verifyJWT, async (req, res) => {
   try {
-    const assignments = await assignmentsCollection
-      .find({ creatorEmail: email, status: 'pending' })
-      .toArray();
+    const updateFields = {};
+    const { status, marks, feedback } = req.body;
+    if (status) updateFields.status = status;
+    if (marks !== undefined) updateFields.marks = marks;
+    if (feedback !== undefined) updateFields.feedback = feedback;
 
-    res.json(assignments);
-  } catch (error) {
-    console.error('Error fetching pending assignments:', error);
-    res.status(500).json({ message: 'Internal server error' });
-  }
-});
-
-// Endpoint to update the submission status
-app.put('/api/submissions/:id', async (req, res) => {
-  const { id } = req.params;
-  const { status } = req.body;
-
-  if (!status) {
-    return res.status(400).json({ message: 'Status is required.' });
-  }
-
-  try {
     const result = await submissionsCollection.updateOne(
-      { _id: new ObjectId(id) },
-      { $set: { status } }
+      { _id: new ObjectId(req.params.id) },
+      { $set: updateFields }
     );
 
-    if (result.matchedCount === 0) {
-      return res.status(404).json({ message: 'Submission not found' });
-    }
-
-    res.status(200).json({ message: 'Submission status updated successfully' });
-  } catch (error) {
-    console.error('Error updating submission status:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    if (result.matchedCount === 0) return res.json({ message: 'Submission not found' });
+    res.json({ message: 'Updated' });
+  } catch {
+    res.json({ message: 'Error updating submission' });
   }
 });
-/////////////////////
-app.put('/api/assignments/:id', async (req, res) => {
-  const { id } = req.params;
-  const { marks, feedback, status } = req.body;
 
-  if (!marks || !feedback) {
-    return res.status(400).json({ message: "Marks and feedback are required." });
-  }
-
-  // Ensure status is set to "completed"
-  const updatedAssignment = {
-    marks,
-    feedback,
-    status: "completed",  // Force status to "completed" when marks are submitted
-  };
-
+// Get pending assignments by creator email (Protected)
+app.get('/assignments/pending', verifyJWT, async (req, res) => {
   try {
-    const result = await assignmentsCollection.updateOne(
-      { _id: new ObjectId(id) },
-      { $set: updatedAssignment }
-    );
+    const email = req.user?.email;
+    if (!email) return res.json({ message: "Email is required" });
 
-    if (result.matchedCount === 0) {
-      return res.status(404).json({ message: "Assignment not found" });
-    }
-
-    res.status(200).json({ message: "Assignment updated successfully" });
-  } catch (error) {
-    console.error("Error updating assignment:", error);
-    res.status(500).json({ message: "Internal server error" });
+    const pendingAssignments = await assignmentsCollection.find({ creatorEmail: email, status: 'pending' }).toArray();
+    res.json(pendingAssignments);
+  } catch {
+    res.json({ message: 'Error fetching pending assignments' });
   }
 });
 
+// Root route
+app.get('/', (req, res) => {
+  res.send('Grup-Study Running here..');
+});
 
-
-
-// Start the server
+// Start server
 app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
+  console.log(`Server running on port ${port}`);
 });
