@@ -27,7 +27,7 @@ let submissionsCollection;
 // Connect to MongoDB
 async function connectToDatabase() {
   try {
-    await client.connect();
+    // await client.connect();
     const database = client.db('GroupStudy');
     assignmentsCollection = database.collection('assignments');
     submissionsCollection = database.collection('submissions');
